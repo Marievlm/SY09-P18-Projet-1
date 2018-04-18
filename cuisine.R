@@ -1,3 +1,13 @@
+install.packages("corrplot")
+install.packages("factoextra")
+install.packages("lattice")
+library(lattice)
+library(corrplot)
+library("FactoMineR")
+library(factoextra)
+library(ggplot2)
+library(tibble)
+
 #donnees recettes-pays.data
 
 
@@ -11,38 +21,41 @@ summary(recette_pays)
 sapply(recette_pays[,-1],var) 
 covariance <- cov(recette_pays[,-1])
 summary(covariance)
-correlation <- cor(recette_pays[,-1])
-summary(correlation)
 boxplot(recette_pays[,-1])
 
+#test de corrélation
+correlation <- cor(recette_pays[,-1])
+corrplot(correlation, method="circle", type="lower")
+cor.mtest <- function(mat) {
+        mat <- as.matrix(mat)
+        n <- ncol(mat)
+        p.mat<- matrix(NA, n, n)
+        diag(p.mat) <- 0
+        for (i in 1:(n - 1)) {
+                for (j in (i + 1):n) {
+                        tmp <- cor.test(mat[, i], mat[, j])
+                        p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+                }
+        }
+        colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+        p.mat
+}
 
+p.mat<-cor.mtest(correlation)
+x11()
+corrplot(correlation, type="lower", order="hclust", p.mat = p.mat, sig.level = 0.05,  insig = "blank")
+
+
+summary(correlation)
 #Question 2:
         ##Analyse composants principales
-rec_matrice <- as.matrix(recette_pays[,-1])
-Dp <- diag(x = 1/26, nrow = 26, ncol = 26)
-M <- diag(x = 1, nrow = 50, ncol = 50)
-rec_scaled <- scale(rec_matrice)
-V <- t(rec_scaled)%*%Dp%*%rec_scaled
-x <- eigen(V)
-valeur_propre <- x$values
-vecteur_propre <- x$vectors
-positive <- valeur_propre > 0
-valeur_propre <- valeur_propre[positive == TRUE]
-vecteur_propre <- vecteur_propre[,1:length(valeur_propre)]
-barplot(valeur_propre)
-inertie_totale <- sum(valeur_propre)
-pourcentage_iner_expliquee <- valeur_propre / inertie_totale
-C <- rec_scaled%*%M%*%vecteur_propre
-plot(C[,2]~C[,1])
-text(C[,1],C[,2],recette_pays[,1])
-plot(C[,3]~C[,1])
-text(C[,1],C[,3],recette_pays[,1])
-D <- cor(rec_scaled, C)
-plot(-1:1, -1:1, type = "n", xlab = "Axe factoriel 1", ylab = "Axe factoriel 2")
-text(D[, 1], D[, 2],colnames(rec_matrice))
-abline(h = 0, v = 0, col = "blue")
-curve(sqrt(1 - x^2), -1, 1, add = T, col = "blue")
-curve(-sqrt(1 - x^2), -1, 1, add = T, col = "blue")
+
+res.pca <- PCA(recette_pays[,-1], graph = FALSE)
+fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 50))
+fviz_ca_biplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
+fviz_pca_var(res.pca, col.var = "black")
+fviz_pca_ind(res.pca, col.ind = "black")
 
         ##AFTD
 library(MASS)
@@ -50,7 +63,7 @@ rec_matrice <- as.matrix(recette_pays[,-1])
 rec_scaled <- scale(rec_matrice)
 dissimilarite <- dist(rec_scaled, diag = TRUE)
 mds <- cmdscale(dissimilarite, eig = TRUE)
-plot(mds$points)
+plot(mds$points, main = "AFTD")
 text(mds$points[,1],mds$points[,2], recette_pays[,1])
 shepard <- Shepard(dissimilarite, mds$points)
 plot(shepard)
@@ -74,6 +87,25 @@ plot(hc_cusine.centroid, main = "Method : Centroid")
 hc_cusine.single <- hclust(dissimilarite, method = "single")
 plot(hc_cusine.single, main = "Method : Single")
 
+#Question 4 : K-means
+library(cluster)
+rec_matrice <- as.matrix(recette_pays[,-1])
+rec_scaled <- scale(rec_matrice)
+dissimilarite <- dist(rec_scaled)
+rec_km <- kmeans(rec_scaled, 4)
+clusplot(dissimilarite, rec_km$cluster, diss= TRUE, color = TRUE , shade = TRUE, labels = 2, lines = 0, main = "Kmeans avec k = 4")
+inertie_matrice <- matrix(0, nrow = 100, ncol = 10)
+for (i in 1:10)
+{
+        for (j in 1:100)
+        {
+                inertie_matrice[j,i] <- kmeans(rec_scaled,i)$tot.withinss
+        }
+}
+
+inertie <- apply(inertie_matrice,2,min)
+plot(inertie, main = "Inertie intra-classe minimale en fonction de K", type = "l", xlab = "K", ylab = "Inertie intra-classe")
+apply(inertie_matrice,2,var)
 
 #Donnees recettes-echant.data
 
@@ -91,17 +123,16 @@ barplot(apply(recettes_echant[,-1],2,sum))
 
 
         #Question 7 : 
-###Transformation
-rec_trans <- matrix(0, nrow = length(unique(recettes_echant$origin)), ncol = ncol(recettes_echant[,-1]))
-for (i in 1:length(unique(rec_trans$origin)))
-{
-        for (j in 2:ncol(recettes_echant[,]))
-        {
-                count <- 0
-                for (k in 1:nrow(recettes_echant))
-                {
-                        if (recettes_echant[k,1] == unique(rec_trans$origin)[i])
-                                count <- count + recettes_echant[k,j]
-                }
-        }
-}
+
+###dissimilarite
+par(mfrow = c(1,2))
+rec <- t(as.matrix(recettes_echant[,-1]))
+dissimilarite <- dist(rec, method = "binary", diag = TRUE)
+hc_rec <- hclust(dissimilarite, method = "ward.D2")
+plot(hc_rec)
+
+
+#K-medoides
+library(cluster)
+kmedoides <- pam(dissimilarite, 6)
+clusplot(as.matrix(dissimilarite), kmedoides$clustering, diss= TRUE, color = TRUE , shade = TRUE, labels = 2, lines = 0, main = "Kmedoides avec k = 4")
